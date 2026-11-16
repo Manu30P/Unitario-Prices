@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Calculadora de precios</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #172033;
+            background: #f3f6fb;
+        }
+
+        body {
+            box-sizing: border-box;
+            display: grid;
+            min-height: 100vh;
+            margin: 0;
+            padding: 24px;
+            place-items: center;
+        }
+
+        main {
+            box-sizing: border-box;
+            width: min(100%, 520px);
+            padding: 32px;
+            border-radius: 16px;
+            background: #fff;
+            box-shadow: 0 12px 36px #17203318;
+        }
+
+        h1 { margin: 0 0 8px; font-size: 1.7rem; }
+        p { margin: 0 0 24px; color: #5b6578; }
+        label { display: block; margin: 16px 0 6px; font-weight: 600; }
+
+        input, select, button {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid #cbd3df;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        button {
+            margin-top: 22px;
+            border: 0;
+            color: #fff;
+            background: #2459d3;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button:hover { background: #1948b4; }
+        button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #9bb8ff; outline-offset: 2px; }
+        .result, .error { margin-top: 20px; padding: 14px; border-radius: 8px; }
+        .result { color: #176438; background: #eaf7ef; font-size: 1.15rem; }
+        .error { color: #a52b23; background: #fff0ef; }
+
+        @media (max-width: 480px) {
+            main { padding: 24px; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Calculadora de precios</h1>
+    <p>Convierte euros y dólares o calcula un precio con descuento.</p>
+
+    <form id="price-form" novalidate>
+        <label for="operation">Operación</label>
+        <select id="operation" name="operation">
+            <option value="euros-to-dollars">Euros a dólares</option>
+            <option value="dollars-to-euros">Dólares a euros</option>
+            <option value="discount">Aplicar descuento (precio en euros)</option>
+        </select>
+
+        <label for="amount">Importe (<span id="amount-currency">€</span>)</label>
+        <input id="amount" name="amount" type="number" min="0" step="any" placeholder="Por ejemplo, 100" required>
+
+        <div id="exchange-rate-field">
+            <label for="exchange-rate">Tipo de cambio (dólares por euro)</label>
+            <input id="exchange-rate" name="exchange-rate" type="number" min="0" step="any" value="1.10" required>
+        </div>
+
+        <div id="discount-field" hidden>
+            <label for="discount">Descuento (%)</label>
+            <input id="discount" name="discount" type="number" min="0" max="100" step="any" placeholder="Por ejemplo, 20">
+        </div>
+
+        <button type="submit">Calcular</button>
+    </form>
+
+    <div id="message" aria-live="polite"></div>
+</main>
+<script>
+    const form = document.querySelector('#price-form');
+    const operation = document.querySelector('#operation');
+    const amount = document.querySelector('#amount');
+    const amountCurrency = document.querySelector('#amount-currency');
+    const exchangeRateField = document.querySelector('#exchange-rate-field');
+    const exchangeRate = document.querySelector('#exchange-rate');
+    const discountField = document.querySelector('#discount-field');
+    const discount = document.querySelector('#discount');
+    const message = document.querySelector('#message');
+    const currencyFormatters = {
+        EUR: new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }),
+        USD: new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD' })
+    };
+
+    function updateFields() {
+        const isDiscount = operation.value === 'discount';
+        const isDollarInput = operation.value === 'dollars-to-euros';
+        amountCurrency.textContent = isDollarInput ? '$' : '€';
+        exchangeRateField.hidden = isDiscount;
+        exchangeRate.required = !isDiscount;
+        discountField.hidden = !isDiscount;
+        discount.required = isDiscount;
+        message.replaceChildren();
+    }
+
+    operation.addEventListener('change', updateFields);
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        message.replaceChildren();
+
+        const price = Number(amount.value);
+        if (amount.value.trim() === '' || !Number.isFinite(price) || price < 0) {
+            showError('Introduce un importe válido, igual o superior a cero.');
+            return;
+        }
+
+        let result;
+        let currency;
+
+        if (operation.value === 'discount') {
+            const percentage = Number(discount.value);
+            if (discount.value.trim() === '' || !Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+                showError('El descuento debe estar entre 0 y 100.');
+                return;
+            }
+
+            result = Math.round((price * (1 - percentage / 100) + Number.EPSILON) * 100) / 100;
+            currency = 'EUR';
+        } else {
+            const rate = Number(exchangeRate.value);
+            if (exchangeRate.value.trim() === '' || !Number.isFinite(rate) || rate <= 0) {
+                showError('El tipo de cambio debe ser un número positivo.');
+                return;
+            }
+
+            const isDollarInput = operation.value === 'dollars-to-euros';
+            result = isDollarInput ? price / rate : price * rate;
+            result = Math.round((result + Number.EPSILON) * 100) / 100;
+            currency = isDollarInput ? 'EUR' : 'USD';
+        }
+
+        const output = document.createElement('strong');
+        output.textContent = currencyFormatters[currency].format(result);
+        const resultMessage = document.createElement('div');
+        resultMessage.className = 'result';
+        resultMessage.setAttribute('role', 'status');
+        resultMessage.append('Resultado: ', output);
+        message.append(resultMessage);
+    });
+
+    function showError(text) {
+        const errorMessage = document.createElement('div');
+        errorMessage.className = 'error';
+        errorMessage.setAttribute('role', 'alert');
+        errorMessage.textContent = text;
+        message.append(errorMessage);
+    }
+</script>
+</body>
+</html>
